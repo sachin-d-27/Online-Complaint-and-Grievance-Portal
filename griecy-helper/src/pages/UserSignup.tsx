@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 interface SignupFormData {
   username: string;
@@ -15,6 +16,7 @@ interface FormErrors {
 }
 
 const UserSignup = () => {
+  const navigate = useNavigate();
   const [form, setForm] = useState<SignupFormData>({ 
     username: "", 
     email: "",
@@ -23,6 +25,23 @@ const UserSignup = () => {
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  // Initialize component state
+  useEffect(() => {
+    // Reset form state
+    setForm({ 
+      username: "", 
+      email: "",
+      password: "",
+      role: ""
+    });
+    setErrors({});
+    setIsLoading(false);
+    
+    // Mark initialization as complete immediately
+    setIsInitializing(false);
+  }, []);
 
   const roles = [
     { value: "", label: "Select your role" },
@@ -82,7 +101,7 @@ const UserSignup = () => {
     setIsLoading(true);
     try {
       const response = await fetch(
-        "http://localhost:5000/api/signup",
+        "http://localhost:3001/api/signup",
         {
           method: "POST",
           headers: {
@@ -95,7 +114,7 @@ const UserSignup = () => {
       if (data.success) {
         alert("Account created successfully! You can now login.");
         // Redirect to login page
-        window.location.href = "/user-login";
+        navigate("/user-login");
       } else {
         // Show specific validation errors if available
         if (data.errors && data.errors.length > 0) {

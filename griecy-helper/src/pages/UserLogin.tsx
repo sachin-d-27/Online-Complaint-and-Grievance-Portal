@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 interface LoginFormData {
   email: string;
@@ -12,6 +13,7 @@ interface FormErrors {
 }
 
 const UserLogin = () => {
+  const navigate = useNavigate();
   const [form, setForm] = useState<LoginFormData>({ 
     email: "", 
     password: "",
@@ -19,6 +21,33 @@ const UserLogin = () => {
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  // Reset state when component mounts
+  useEffect(() => {
+    // Check if we're coming from a dashboard (has existing auth data)
+    const existingToken = localStorage.getItem("token");
+    const existingUserType = localStorage.getItem("userType");
+    
+    // If there's existing auth data, clear it (coming from dashboard)
+    if (existingToken || existingUserType) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userType");
+      localStorage.removeItem("userInfo");
+    }
+    
+    // Reset form state
+    setForm({ 
+      email: "", 
+      password: "",
+      remember: false 
+    });
+    setErrors({});
+    setIsLoading(false);
+    
+    // Mark initialization as complete immediately
+    setIsInitializing(false);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -57,7 +86,7 @@ const UserLogin = () => {
     setIsLoading(true);
     try {
       const response = await fetch(
-        "http://localhost:5000/api/login",
+        "http://localhost:3001/api/login",
         {
           method: "POST",
           headers: {
@@ -88,7 +117,7 @@ const UserLogin = () => {
       localStorage.setItem("userInfo", JSON.stringify(data.user));
       
       // Redirect to user dashboard
-      window.location.href = "/user-dashboard";
+      navigate("/user-dashboard");
     } catch (error) {
       console.error("Login error:", error);
       alert("Something went wrong. Please try again.");

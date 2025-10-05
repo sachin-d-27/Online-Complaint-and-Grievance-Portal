@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import GrievyAssistant from "@/components/GrievyAssistant";
-import { AlertTriangle, FilePlus2, List, Send, Upload } from "lucide-react";
+import { AlertTriangle, FilePlus2, List, Send, Upload, Pin, PinOff, Search, X } from "lucide-react";
 
 type ComplaintStatus = "Submitted" | "Under Review" | "In Progress" | "Resolved" | "Closed" | "Escalated";
 type ComplaintPriority = "Low" | "Medium" | "High";
+
+interface Comment {
+  comment: string;
+  author: string;
+  authorType: 'user' | 'staff' | 'admin';
+  createdAt: string;
+}
 
 interface ComplaintItem {
   id: string;
@@ -19,11 +28,17 @@ interface ComplaintItem {
   priority: ComplaintPriority;
   dateSubmitted: string;
   daysPending: number;
+  comments?: Comment[];
+  resolvedAt?: string;
 }
 
 const UserDashboard = () => {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [complaints, setComplaints] = useState<ComplaintItem[]>([]);
+  const [pinnedComplaints, setPinnedComplaints] = useState<Set<string>>(new Set());
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -43,16 +58,71 @@ const UserDashboard = () => {
     escalated: complaints.filter(c => c.status === "Escalated").length
   }), [complaints]);
 
+  // Filter complaints based on search term and status
+  const filteredComplaints = useMemo(() => {
+    let filtered = complaints;
+
+    // Apply status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(complaint => complaint.status === statusFilter);
+    }
+
+    // Apply search filter
+    if (searchTerm.trim() !== "") {
+      filtered = filtered.filter(complaint => 
+        complaint.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        complaint.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        complaint.category.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    return filtered;
+  }, [complaints, searchTerm, statusFilter]);
+
+  // Sort complaints with pinned ones first
+  const sortedComplaints = useMemo(() => {
+    return [...filteredComplaints].sort((a, b) => {
+      const aPinned = pinnedComplaints.has(a.id);
+      const bPinned = pinnedComplaints.has(b.id);
+      
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      
+      // If both pinned or both unpinned, sort by date (newest first)
+      return new Date(b.dateSubmitted).getTime() - new Date(a.dateSubmitted).getTime();
+    });
+  }, [filteredComplaints, pinnedComplaints]);
+
+  const togglePinComplaint = (complaintId: string) => {
+    setPinnedComplaints(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(complaintId)) {
+        newSet.delete(complaintId);
+        toast({
+          title: "Unpinned",
+          description: "Complaint unpinned from top",
+        });
+      } else {
+        newSet.add(complaintId);
+        toast({
+          title: "Pinned",
+          description: "Complaint pinned to top",
+        });
+      }
+      return newSet;
+    });
+  };
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
-      window.location.href = "/user-login";
+      navigate("/user-login");
       return;
     }
     const fetchComplaints = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch("http://localhost:5000/api/complaints", {
+        const response = await fetch("http://localhost:3001/api/complaints", {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -69,6 +139,8 @@ const UserDashboard = () => {
           priority: (c.priority || "Medium") as ComplaintPriority,
           dateSubmitted: c.createdAt ? new Date(c.createdAt).toISOString().slice(0, 10) : "",
           daysPending: c.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(c.createdAt).getTime()) / (1000 * 60 * 60 * 24))) : 0,
+          comments: c.comments || [],
+          resolvedAt: c.resolvedAt,
         }));
         setComplaints(mapped);
       } catch (error: any) {
@@ -108,11 +180,19 @@ const UserDashboard = () => {
   const submitNewComplaint = async () => {
     const token = localStorage.getItem("token");
     if (!token) {
-      window.location.href = "/user-login";
+      navigate("/user-login");
       return;
     }
     if (!form.title.trim() || !form.category || !form.description.trim()) {
       toast({ title: "Validation", description: "Please fill in title, category and description." });
+      return;
+    }
+    if (form.title.trim().length < 5 || form.title.trim().length > 200) {
+      toast({ title: "Validation", description: "Title must be between 5 and 200 characters." });
+      return;
+    }
+    if (form.description.trim().length < 20 || form.description.trim().length > 2000) {
+      toast({ title: "Validation", description: "Description must be between 20 and 2000 characters." });
       return;
     }
     setIsSubmitting(true);
@@ -125,7 +205,7 @@ const UserDashboard = () => {
       formData.append("anonymous", String(form.anonymous));
       files.forEach((file) => formData.append("attachments", file));
 
-      const response = await fetch("http://localhost:5000/api/complaints", {
+      const response = await fetch("http://localhost:3001/api/complaints", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -134,6 +214,10 @@ const UserDashboard = () => {
       });
       const data = await response.json();
       if (!data.success) {
+        if (data.errors && data.errors.length > 0) {
+          const errorMessages = data.errors.map((error: any) => error.message).join('\n');
+          throw new Error(errorMessages);
+        }
         throw new Error(data.message || "Failed to submit complaint");
       }
       const c = data.complaint;
@@ -201,11 +285,74 @@ const UserDashboard = () => {
           </Button>
         </div>
 
+        {/* Search Bar */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search complaints by ID, title, or category..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-10"
+                />
+                {searchTerm && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              <div className="min-w-[200px]">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Complaints</SelectItem>
+                    <SelectItem value="Submitted">Submitted</SelectItem>
+                    <SelectItem value="Under Review">Under Review</SelectItem>
+                    <SelectItem value="In Progress">In Progress</SelectItem>
+                    <SelectItem value="Resolved">Resolved</SelectItem>
+                    <SelectItem value="Escalated">Escalated</SelectItem>
+                    <SelectItem value="Closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {searchTerm || statusFilter !== "all" ? (
+                  <span>
+                    Found {filteredComplaints.length} complaint{filteredComplaints.length !== 1 ? 's' : ''}
+                    {searchTerm && ` matching "${searchTerm}"`}
+                    {statusFilter !== "all" && (
+                      <span>
+                        {searchTerm ? ' and ' : ' '}
+                        with status "{statusFilter}"
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span>Showing all {complaints.length} complaints</span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Tabs defaultValue="my-complaints" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="my-complaints" className="flex items-center gap-2">
               <List className="h-4 w-4" />
               My Complaints
+            </TabsTrigger>
+            <TabsTrigger value="resolved" className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              Resolved
             </TabsTrigger>
             <TabsTrigger value="submit" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
@@ -215,12 +362,17 @@ const UserDashboard = () => {
 
           <TabsContent value="my-complaints">
             <div className="space-y-4">
-              {complaints.map((complaint) => (
-                <Card key={complaint.id} className="hover:shadow-lg transition-shadow">
+              {sortedComplaints.map((complaint) => (
+                <Card key={complaint.id} className={`hover:shadow-lg transition-shadow ${pinnedComplaints.has(complaint.id) ? 'border-blue-200 bg-blue-50/30' : ''}`}>
                   <CardContent className="p-6">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex-1">
-                        <h3 className="text-lg font-semibold mb-1">{complaint.title}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="text-lg font-semibold">{complaint.title}</h3>
+                          {pinnedComplaints.has(complaint.id) && (
+                            <Pin className="h-4 w-4 text-blue-600" />
+                          )}
+                        </div>
                         <p className="text-sm text-muted-foreground mb-2">
                           ID: {complaint.id}
                         </p>
@@ -241,8 +393,21 @@ const UserDashboard = () => {
                         <p className="text-sm text-muted-foreground">{complaint.category}</p>
                       </div>
                       <div className="flex justify-end">
-                        <Button variant="outline" size="sm">
-                          <Send className="h-4 w-4 mr-2" /> Follow Up
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => togglePinComplaint(complaint.id)}
+                          className={pinnedComplaints.has(complaint.id) ? "bg-blue-50 border-blue-200 text-blue-700" : ""}
+                        >
+                          {pinnedComplaints.has(complaint.id) ? (
+                            <>
+                              <PinOff className="h-4 w-4 mr-2" /> Unpin
+                            </>
+                          ) : (
+                            <>
+                              <Pin className="h-4 w-4 mr-2" /> Pin to Top
+                            </>
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -250,11 +415,129 @@ const UserDashboard = () => {
                 </Card>
               ))}
 
-              {complaints.length === 0 && (
+              {sortedComplaints.length === 0 && (
                 <Card>
                   <CardContent className="p-8 text-center">
                     <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">No complaints submitted yet.</p>
+                    <h3 className="text-lg font-semibold mb-2">
+                      {searchTerm || statusFilter !== "all" ? "No Matching Complaints" : "No Complaints Submitted"}
+                    </h3>
+                    <p className="text-muted-foreground">
+                      {searchTerm || statusFilter !== "all" 
+                        ? "No complaints match your current search and filter criteria."
+                        : "You haven't submitted any complaints yet."
+                      }
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      {searchTerm || statusFilter !== "all" 
+                        ? "Try adjusting your search terms or filters."
+                        : "Use the 'Submit' tab to create your first complaint."
+                      }
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="resolved">
+            <div className="space-y-4">
+              {filteredComplaints.filter(complaint => complaint.status === "Resolved").map((complaint) => (
+                <Card key={complaint.id} className="hover:shadow-lg transition-shadow border-green-200 bg-green-50/30">
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="text-lg font-semibold text-green-800">{complaint.title}</h3>
+                          <Badge className="bg-green-100 text-green-800 border-green-200">Resolved</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          ID: {complaint.id}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 ml-4">
+                        <Badge className={getPriorityColor(complaint.priority)}>{complaint.priority}</Badge>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end mb-4">
+                      <div>
+                        <label className="text-sm font-medium">Submitted</label>
+                        <p className="text-sm text-muted-foreground">{complaint.dateSubmitted}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Category</label>
+                        <p className="text-sm text-muted-foreground">{complaint.category}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Resolved</label>
+                        <p className="text-sm text-green-600 font-medium">
+                          {complaint.resolvedAt ? new Date(complaint.resolvedAt).toLocaleDateString() : 'Recently'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Staff Comments Section */}
+                    {complaint.comments && complaint.comments.length > 0 && (
+                      <div className="mt-6 pt-4 border-t border-green-200">
+                        <h4 className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          Staff Comments & Resolution Details
+                        </h4>
+                        <div className="space-y-3">
+                          {complaint.comments
+                            .filter(comment => comment.authorType === 'staff' || comment.authorType === 'admin')
+                            .map((comment, index) => (
+                            <div key={index} className="bg-white p-3 rounded-lg border border-green-100">
+                              <div className="flex justify-between items-start mb-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {comment.authorType === 'admin' ? 'Admin' : 'Staff'}
+                                  </Badge>
+                                  <span className="text-sm font-medium text-gray-700">{comment.author}</span>
+                                </div>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(comment.createdAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 leading-relaxed">{comment.comment}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(!complaint.comments || complaint.comments.filter(c => c.authorType === 'staff' || c.authorType === 'admin').length === 0) && (
+                      <div className="mt-6 pt-4 border-t border-green-200">
+                        <div className="text-center py-4">
+                          <AlertTriangle className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-500">No staff comments available for this resolved complaint.</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+
+              {filteredComplaints.filter(complaint => complaint.status === "Resolved").length === 0 && (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">
+                      {searchTerm || statusFilter !== "all" ? "No Matching Resolved Complaints" : "No Resolved Complaints"}
+                    </h3>
+                    <p className="text-muted-foreground">
+                      {searchTerm || statusFilter !== "all" 
+                        ? "No resolved complaints match your current search and filter criteria."
+                        : "You don't have any resolved complaints yet."
+                      }
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      {searchTerm || statusFilter !== "all" 
+                        ? "Try adjusting your search terms or filters."
+                        : "Your resolved complaints will appear here with staff comments."
+                      }
+                    </p>
                   </CardContent>
                 </Card>
               )}
@@ -271,7 +554,10 @@ const UserDashboard = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium">Title</label>
-                    <input name="title" value={form.title} onChange={handleFormChange} className="w-full p-2 border rounded-md" placeholder="Brief title" />
+                    <input name="title" value={form.title} onChange={handleFormChange} className="w-full p-2 border rounded-md" placeholder="Brief title (minimum 5 characters)" />
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {form.title.length}/200 characters (minimum 5 required)
+                    </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium">Category</label>
@@ -309,7 +595,10 @@ const UserDashboard = () => {
                   </div>
                   <div className="md:col-span-2">
                     <label className="text-sm font-medium">Description</label>
-                    <textarea name="description" value={form.description} onChange={handleFormChange} className="w-full p-2 border rounded-md min-h-32" placeholder="Describe the issue in detail" />
+                    <textarea name="description" value={form.description} onChange={handleFormChange} className="w-full p-2 border rounded-md min-h-32" placeholder="Describe the issue in detail (minimum 20 characters)" />
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {form.description.length}/2000 characters (minimum 20 required)
+                    </div>
                   </div>
                   <div className="md:col-span-2">
                     <label className="text-sm font-medium">Attachments</label>

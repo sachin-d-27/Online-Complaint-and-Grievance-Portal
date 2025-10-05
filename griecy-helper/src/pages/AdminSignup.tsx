@@ -29,10 +29,7 @@ const AdminSignup = () => {
   const roles = [
     { value: "", label: "Select a role" },
     { value: "super-admin", label: "Super Administrator" },
-    { value: "admin", label: "Administrator" },
-    { value: "system-admin", label: "System Administrator" },
-    { value: "content-admin", label: "Content Administrator" },
-    { value: "user-admin", label: "User Administrator" }
+    { value: "admin", label: "Administrator" }
   ];
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -86,7 +83,7 @@ const AdminSignup = () => {
     
     try {
       const response = await fetch(
-        "http://localhost:5000/api/signup",
+        "http://localhost:3001/api/signup",
         {
           method: "POST",
           headers: {
