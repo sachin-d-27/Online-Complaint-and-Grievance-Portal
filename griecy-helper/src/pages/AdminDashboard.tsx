@@ -505,13 +505,13 @@ const AdminDashboard = () => {
               </div>
 
               {filteredComplaints.filter(complaint => complaint.status !== "Resolved").map((complaint) => (
-                <Card key={complaint._id} className={`hover:shadow-lg transition-shadow ${complaint.status === "Resolved" ? 'border-gray-300 bg-gray-50/30' : ''}`}>
+                <Card key={complaint._id} className={`hover:shadow-lg transition-shadow ${complaint.status === "Resolved" || complaint.status === "Closed" ? 'border-gray-300 bg-gray-50/30' : ''}`}>
                   <CardContent className="p-6">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className={`text-lg font-semibold ${complaint.status === "Resolved" ? 'text-gray-600' : ''}`}>{complaint.title}</h3>
-                          {complaint.status === "Resolved" && (
+                          <h3 className={`text-lg font-semibold ${complaint.status === "Resolved" || complaint.status === "Closed" ? 'text-gray-600' : ''}`}>{complaint.title}</h3>
+                          {(complaint.status === "Resolved" || complaint.status === "Closed") && (
                             <Badge className="bg-gray-100 text-gray-600 border-gray-200">Locked</Badge>
                           )}
                         </div>
@@ -564,7 +564,7 @@ const AdminDashboard = () => {
                         <label className="text-sm font-medium">Assign to Staff</label>
                         <Select 
                           onValueChange={(staffId) => assignComplaint(complaint._id, staffId)}
-                          disabled={isAssigning === complaint._id || complaint.status === "Resolved"}
+                          disabled={isAssigning === complaint._id || complaint.status === "Resolved" || complaint.status === "Closed"}
                         >
                           <SelectTrigger>
                             <SelectValue placeholder={complaint.status === "Resolved" ? "Complaint is locked" : "Select staff member"} />
@@ -579,7 +579,7 @@ const AdminDashboard = () => {
                         </Select>
                       </div>
                       <div>
-                        {complaint.daysPending > 5 && complaint.status !== "Resolved" && (
+                        {complaint.isOverdue && complaint.status !== "Resolved" && (
                           <Button 
                             variant="destructive"
                             onClick={() => escalateComplaint(complaint._id)}
@@ -589,7 +589,7 @@ const AdminDashboard = () => {
                             {isEscalating === complaint._id ? "Escalating..." : `Escalate (${complaint.daysPending} days)`}
                           </Button>
                         )}
-                        {complaint.status === "Resolved" && (
+                        {(complaint.status === "Resolved" || complaint.status === "Closed") && (
                           <div className="w-full p-3 text-center text-sm text-gray-500 bg-gray-100 rounded-md">
                             Complaint is locked - no actions available
                           </div>
@@ -600,7 +600,7 @@ const AdminDashboard = () => {
                     <div className="flex justify-between items-center text-sm text-muted-foreground mt-4 pt-4 border-t">
                       <div className="flex flex-col gap-1">
                         <span>Submitted: {new Date(complaint.createdAt).toLocaleDateString()}</span>
-                        {complaint.dueDate && (
+                        {complaint.dueDate && complaint.status !== "Closed" && (
                           <span className={complaint.isOverdue ? "text-red-600 font-medium" : "text-blue-600"}>
                             Due: {new Date(complaint.dueDate).toLocaleDateString()}
                             {complaint.daysUntilDue !== null && (
@@ -636,7 +636,7 @@ const AdminDashboard = () => {
                 <Badge variant="destructive">{stats.escalated} Escalated</Badge>
               </div>
 
-              {filteredComplaints.filter(c => (c.status === "Escalated" || c.daysPending > 5) && c.status !== "Resolved").map((complaint) => (
+              {filteredComplaints.filter(c => (c.status === "Escalated") || (c.daysPending > 5 && c.status !== "Resolved" && c.status !== "Closed" && !c.assignedTo)).map((complaint) => (
                 <Card key={complaint._id} className="border-destructive/20 bg-destructive/5">
                   <CardContent className="p-6">
                     <div className="flex justify-between items-start mb-4">
@@ -703,10 +703,10 @@ const AdminDashboard = () => {
                         <label className="text-sm font-medium mb-2 block">Reassign to Staff</label>
                         <Select 
                           onValueChange={(staffId) => assignComplaint(complaint._id, staffId)}
-                          disabled={isAssigning === complaint._id || complaint.status === "Resolved"}
+                          disabled={isAssigning === complaint._id || complaint.status === "Resolved" || complaint.status === "Closed"}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder={complaint.status === "Resolved" ? "Complaint is locked" : "Select new staff member"} />
+                            <SelectValue placeholder={complaint.status === "Resolved" || complaint.status === "Closed" ? "Complaint is locked" : "Select new staff member"} />
                           </SelectTrigger>
                           <SelectContent>
                             {staffList.map((staff) => (
@@ -722,7 +722,7 @@ const AdminDashboard = () => {
                         <Select 
                           value={complaint.priority}
                           onValueChange={(priority) => updateComplaintPriority(complaint._id, priority)}
-                          disabled={complaint.status === "Resolved"}
+                          disabled={complaint.status === "Resolved" || complaint.status === "Closed"}
                         >
                           <SelectTrigger>
                             <SelectValue />
@@ -740,21 +740,21 @@ const AdminDashboard = () => {
                       <Button 
                         variant="outline"
                         onClick={() => updateComplaintStatus(complaint._id, "In Progress")}
-                        disabled={complaint.status === "Resolved"}
+                        disabled={complaint.status === "Resolved" || complaint.status === "Closed"}
                       >
                         Mark as In Progress
                       </Button>
                       <Button 
                         variant="outline"
                         onClick={() => updateComplaintStatus(complaint._id, "Resolved")}
-                        disabled={complaint.status === "Resolved"}
+                        disabled={complaint.status === "Resolved" || complaint.status === "Closed"}
                       >
                         Mark as Resolved
                       </Button>
                       <Button 
                         variant="destructive"
                         onClick={() => updateComplaintStatus(complaint._id, "Closed")}
-                        disabled={complaint.status === "Resolved"}
+                        disabled={complaint.status === "Resolved" || complaint.status === "Closed"}
                       >
                         Close Complaint
                       </Button>

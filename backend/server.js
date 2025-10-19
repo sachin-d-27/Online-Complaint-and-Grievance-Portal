@@ -1032,6 +1032,8 @@ app.put('/api/admin/complaints/:id/escalate', authenticateToken, isAdmin, async 
       {
         status: 'Escalated',
         priority: 'High',
+        assignedTo: null, // Clear assignment when escalating
+        escalatedAt: new Date(),
         updatedAt: new Date()
       },
       { new: true }
