@@ -8,6 +8,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1462,6 +1463,144 @@ app.get('/api/download/:filename', authenticateToken, isStaffOrAdmin, async (req
     res.status(500).json({
       success: false,
       message: 'Internal server error'
+    });
+  }
+});
+
+// Export reports endpoint
+app.get('/api/admin/export', authenticateToken, async (req, res) => {
+  try {
+    const { format, category } = req.query;
+    
+    if (!format || !['csv', 'pdf'].includes(format)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid format. Must be csv or pdf'
+      });
+    }
+
+    // Build filter for complaints
+    const filter = {};
+    if (category && category !== 'all') {
+      filter.category = category;
+    }
+
+    // Fetch complaints with populated data
+    const complaints = await Complaint.find(filter)
+      .populate('userId', 'username email')
+      .populate('assignedTo', 'username email role')
+      .sort({ createdAt: -1 });
+
+    if (format === 'csv') {
+      // Generate CSV
+      const csvHeaders = [
+        'Complaint ID',
+        'Title',
+        'Description',
+        'Category',
+        'Priority',
+        'Status',
+        'Citizen Name',
+        'Citizen Email',
+        'Assigned To',
+        'Created Date',
+        'Due Date',
+        'Resolved Date',
+        'Escalated Date'
+      ];
+
+      const csvRows = complaints.map(complaint => [
+        complaint.complaintId,
+        complaint.title,
+        complaint.description,
+        complaint.category,
+        complaint.priority,
+        complaint.status,
+        complaint.citizen,
+        complaint.userId?.email || '',
+        complaint.assignedTo?.username || 'Unassigned',
+        complaint.createdAt ? new Date(complaint.createdAt).toLocaleDateString() : '',
+        complaint.dueDate ? new Date(complaint.dueDate).toLocaleDateString() : '',
+        complaint.resolvedAt ? new Date(complaint.resolvedAt).toLocaleDateString() : '',
+        complaint.escalatedAt ? new Date(complaint.escalatedAt).toLocaleDateString() : ''
+      ]);
+
+      const csvContent = [csvHeaders, ...csvRows]
+        .map(row => row.map(field => `"${field}"`).join(','))
+        .join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="complaints-report-${category || 'all'}-${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csvContent);
+
+    } else if (format === 'pdf') {
+      // Generate PDF using PDFKit
+      const doc = new PDFDocument();
+      
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="complaints-report-${category || 'all'}-${new Date().toISOString().split('T')[0]}.pdf"`);
+      
+      // Pipe PDF to response
+      doc.pipe(res);
+      
+      // Add title
+      doc.fontSize(20).text('COMPLAINT MANAGEMENT SYSTEM', { align: 'center' });
+      doc.fontSize(16).text('Export Report', { align: 'center' });
+      doc.moveDown();
+      
+      // Add report info
+      doc.fontSize(12);
+      doc.text(`Generated: ${new Date().toLocaleString()}`);
+      doc.text(`Category: ${category === 'all' ? 'All Categories' : category}`);
+      doc.text(`Total Complaints: ${complaints.length}`);
+      doc.moveDown();
+      
+      // Add complaints
+      complaints.forEach((complaint, index) => {
+        // Add page break if needed (except for first complaint)
+        if (index > 0 && index % 3 === 0) {
+          doc.addPage();
+        }
+        
+        // Complaint header
+        doc.fontSize(14).text(`Complaint ${index + 1}: ${complaint.complaintId}`, { underline: true });
+        doc.moveDown(0.5);
+        
+        // Complaint details
+        doc.fontSize(10);
+        doc.text(`Title: ${complaint.title}`);
+        doc.text(`Category: ${complaint.category}`);
+        doc.text(`Priority: ${complaint.priority}`);
+        doc.text(`Status: ${complaint.status}`);
+        doc.text(`Citizen: ${complaint.citizen}`);
+        doc.text(`Assigned To: ${complaint.assignedTo?.username || 'Unassigned'}`);
+        doc.text(`Created: ${complaint.createdAt ? new Date(complaint.createdAt).toLocaleDateString() : 'N/A'}`);
+        doc.text(`Due Date: ${complaint.dueDate ? new Date(complaint.dueDate).toLocaleDateString() : 'N/A'}`);
+        doc.text(`Resolved: ${complaint.resolvedAt ? new Date(complaint.resolvedAt).toLocaleDateString() : 'N/A'}`);
+        doc.text(`Escalated: ${complaint.escalatedAt ? new Date(complaint.escalatedAt).toLocaleDateString() : 'N/A'}`);
+        
+        // Description (truncated if too long)
+        const description = complaint.description.length > 200 
+          ? complaint.description.substring(0, 200) + '...' 
+          : complaint.description;
+        doc.text(`Description: ${description}`);
+        
+        // Add separator line
+        doc.moveDown(0.5);
+        doc.text('─'.repeat(80));
+        doc.moveDown();
+      });
+      
+      // Finalize PDF
+      doc.end();
+    }
+
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate export report'
     });
   }
 });

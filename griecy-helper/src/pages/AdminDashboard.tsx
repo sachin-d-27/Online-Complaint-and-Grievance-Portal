@@ -43,6 +43,11 @@ const AdminDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [filteredComplaints, setFilteredComplaints] = useState<any[]>([]);
+  
+  // Export state
+  const [exportCategory, setExportCategory] = useState<string>("all");
+  const [exportFormat, setExportFormat] = useState<string>("");
+  const [exportStatus, setExportStatus] = useState<string>("");
 
   const { toast } = useToast();
 
@@ -318,6 +323,121 @@ const AdminDashboard = () => {
       toast({
         title: "Download Failed",
         description: error.message || "Failed to download file",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // Export handlers
+  const handleExportCSV = async () => {
+    if (!exportFormat || exportFormat !== 'csv') {
+      toast({
+        title: "Select Format",
+        description: "Please select CSV format first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setExportStatus("Generating CSV report...");
+    
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const params = new URLSearchParams({
+        format: 'csv',
+        category: exportCategory
+      });
+
+      const response = await fetch(`http://localhost:3001/api/admin/export?${params}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate CSV report');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `complaints-report-${exportCategory}-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setExportStatus("");
+      toast({
+        title: "CSV Export Complete! 📊",
+        description: `Report exported for ${exportCategory === 'all' ? 'all categories' : exportCategory}`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting CSV:", error);
+      setExportStatus("");
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to export CSV report",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!exportFormat || exportFormat !== 'pdf') {
+      toast({
+        title: "Select Format",
+        description: "Please select PDF format first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setExportStatus("Generating PDF report...");
+    
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const params = new URLSearchParams({
+        format: 'pdf',
+        category: exportCategory
+      });
+
+      const response = await fetch(`http://localhost:3001/api/admin/export?${params}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF report');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `complaints-report-${exportCategory}-${new Date().toISOString().split('T')[0]}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setExportStatus("");
+      toast({
+        title: "PDF Export Complete! 📄",
+        description: `Report exported for ${exportCategory === 'all' ? 'all categories' : exportCategory}`,
+      });
+    } catch (error: any) {
+      console.error("Error exporting PDF:", error);
+      setExportStatus("");
+      toast({
+        title: "Export Failed",
+        description: error.message || "Failed to export PDF report",
         variant: "destructive"
       });
     }
@@ -902,6 +1022,79 @@ const AdminDashboard = () => {
             <div className="space-y-6">
               <h2 className="text-2xl font-semibold">Reports & Analytics</h2>
               
+              {/* Export Options */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Download className="h-5 w-5" />
+                    Export Reports
+                  </CardTitle>
+                  <CardDescription>Generate detailed reports for analysis with category filtering</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Category Filter */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Filter by Category</label>
+                      <Select value={exportCategory} onValueChange={setExportCategory}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Categories</SelectItem>
+                          {Object.keys(stats.categories).map((category) => (
+                            <SelectItem key={category} value={category}>
+                              {category}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Export Format */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Export Format</label>
+                      <Select value={exportFormat} onValueChange={setExportFormat}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select format" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="csv">CSV (Spreadsheet)</SelectItem>
+                          <SelectItem value="pdf">PDF (Document)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Export Buttons */}
+                  <div className="flex gap-4">
+                    <Button 
+                      onClick={handleExportCSV}
+                      disabled={!exportFormat || exportFormat !== 'csv'}
+                      className="flex-1"
+                    >
+                      <FileBarChart className="h-4 w-4 mr-2" />
+                      Export CSV
+                    </Button>
+                    <Button 
+                      onClick={handleExportPDF}
+                      disabled={!exportFormat || exportFormat !== 'pdf'}
+                      className="flex-1"
+                    >
+                      <FileBarChart className="h-4 w-4 mr-2" />
+                      Export PDF
+                    </Button>
+                  </div>
+
+                  {/* Export Status */}
+                  {exportStatus && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-800">{exportStatus}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* Category Breakdown */}
               <Card>
                 <CardHeader>
@@ -945,28 +1138,6 @@ const AdminDashboard = () => {
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-
-              {/* Export Options */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Export Reports</CardTitle>
-                  <CardDescription>Generate detailed reports for analysis</CardDescription>
-                </CardHeader>
-                <CardContent className="flex gap-4">
-                  <Button variant="outline">
-                    <FileBarChart className="h-4 w-4 mr-2" />
-                    Export to PDF
-                  </Button>
-                  <Button variant="outline">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Monthly Report
-                  </Button>
-                  <Button variant="outline">
-                    <TrendingUp className="h-4 w-4 mr-2" />
-                    Analytics Dashboard
-                  </Button>
                 </CardContent>
               </Card>
             </div>
